@@ -190,9 +190,7 @@ void YabauseChangeTiming(int freqtype) {
 
 //////////////////////////////////////////////////////////////////////////////
 extern int tweak_backup_file_size;
-YabEventQueue * q_scsp_frame_start;
-YabEventQueue * q_scsp_finish;
-
+YabEventQueue * q_scsp_m68counterCond;
 
 static void sh2ExecuteSync( SH2_struct* sh, int req ) {
     if (req != 0) {
@@ -338,11 +336,10 @@ int YabauseInit(yabauseinit_struct *init)
    yabsys.wireframe_mode = init->wireframe_mode;
    yabsys.skipframe = init->skipframe;
    yabsys.isRotated = 0;
+   YabauseSetVideoFormat(VIDEOFORMATTYPE_NTSC); //default video format initialization
    nextFrameTime = 0;
 
-  q_scsp_frame_start = YabThreadCreateQueue(1);
-  q_scsp_finish = YabThreadCreateQueue(1);
-  setM68kCounter(0);
+  q_scsp_m68counterCond = YabThreadCreateQueue(1);
 
    // Initialize both cpu's
    if (SH2Init(init->sh2coretype) != 0)
@@ -374,7 +371,8 @@ int YabauseInit(yabauseinit_struct *init)
    }
 
    // Now that we have some informations on current game, trying to auto-detect required settings
-   DBLookup(&init->carttype, &init->cartpath, init->supportdir);
+   if (init->auto_cart != 0)
+      DBLookup(&init->carttype, &init->cartpath, init->supportdir);
 
    if (CartInit(init->cartpath, init->carttype) != 0)
    {
@@ -476,7 +474,7 @@ int YabauseInit(yabauseinit_struct *init)
       return -1;
    }
 
-   if (SmpcInit(init->regionid, init->clocksync, init->basetime, init->languageid) != 0)
+   if (SmpcInit(init->regionid, init->clocksync, init->basetime, init->smpcpath, init->languageid) != 0)
    {
       YabSetError(YAB_ERR_CANNOTINIT, _("SMPC"));
       return -1;
@@ -540,6 +538,10 @@ int YabauseInit(yabauseinit_struct *init)
 
    if (Cs2GetRegionID() >= 0xA) YabauseSetVideoFormat(VIDEOFORMATTYPE_PAL);
    else YabauseSetVideoFormat(VIDEOFORMATTYPE_NTSC);
+
+#if defined(ASYNC_SCSP)
+   ScspRun();
+#endif
 
 #ifdef HAVE_GDBSTUB
    GdbStubInit(MSH2, 43434);
@@ -737,7 +739,6 @@ u32 YabauseGetFrameCount() {
 
 //#define YAB_STATICS
 void SyncCPUtoSCSP();
-u64 getM68KCounter();
 u64 g_m68K_dec_cycle = 0;
 
 
@@ -751,25 +752,12 @@ int YabauseEmulate(void) {
    unsigned int m68kcycles;       // Integral M68k cycles per call
    unsigned int m68kcenticycles;  // 1/100 M68k cycles per call
 
-   u32 m68k_cycles_per_deciline = 0;
-   u32 scsp_cycles_per_deciline = 0;
+    //http://antime.kapsi.fi/sega/files/ST-103-R1-040194.pdf
+   int const lines = yabsys.MaxLineCount;
+   u8 const frames = yabsys.fps;
 
-   int lines = 0;
-   int frames = 0;
-
-   if (yabsys.IsPal)
-   {
-     lines = 313;
-     frames = 50;
-   }
-   else
-   {
-     lines = 263;
-     frames = 60;
-   }
-   scsp_cycles_per_deciline = get_cycles_per_line_division(44100 * 512, frames, lines, DECILINE_STEP);
-   m68k_cycles_per_deciline = get_cycles_per_line_division(44100 * 256, frames, lines, DECILINE_STEP);
-
+   u64 const scsp_cycles_per_deciline = get_cycles_per_line_division(scsp_frequency * 512, frames, lines, DECILINE_STEP);
+   u64 const m68k_cycles_per_deciline = get_cycles_per_line_division(scsp_frequency * scsp_samplecnt, frames, lines, DECILINE_STEP);
    DoMovie();
 
    MSH2->cycles = 0;
@@ -824,15 +812,11 @@ int YabauseEmulate(void) {
         // SyncScsp();
          PROFILE_STOP("hblankout");
          PROFILE_START("SCSP");
-         ScspExec();
          PROFILE_STOP("SCSP");
          yabsys.DecilineCount = 0;
          yabsys.LineCount++;
          if (yabsys.LineCount == yabsys.VBlankLineCount)
          {
-#if defined(ASYNC_SCSP)
-            setM68kCounter((u64)(44100 * 256 / ((yabsys.IsPal)?50:60))<< SCSP_FRACTIONAL_BITS);
-#endif
             PROFILE_START("vblankin");
             // VBlankIN
             SmpcINTBACKEnd();
@@ -884,8 +868,7 @@ int YabauseEmulate(void) {
       saved_scsp_cycles -= scsp_integer_part << SCSP_FRACTIONAL_BITS;
 #else
       {
-        saved_m68k_cycles  += m68k_cycles_per_deciline;
-        setM68kCounter(saved_m68k_cycles);
+          ScspAddCycles(m68k_cycles_per_deciline);
 #endif
       }
       PROFILE_STOP("Total Emulation");
@@ -925,13 +908,13 @@ int YabauseEmulate(void) {
    return ret;
 }
 
+extern YabMutex * g_scsp_mtx;
 
 void SyncCPUtoSCSP() {
   //LOG("[SH2] WAIT SCSP");
-    YabWaitEventQueue(q_scsp_finish);
-    saved_m68k_cycles = 0;
-    setM68kCounter(saved_m68k_cycles);
-    YabAddEventQueue(q_scsp_frame_start, 0);
+    YabThreadWake(YAB_THREAD_SCSP);
+    YabThreadLock(g_scsp_mtx);
+    YabThreadUnLock(g_scsp_mtx);
   //LOG("[SH2] START SCSP");
 }
 
@@ -1017,9 +1000,10 @@ u64 YabauseGetTicks(void) {
 //////////////////////////////////////////////////////////////////////////////
 
 void YabauseSetVideoFormat(int type) {
-   if (Vdp2Regs == NULL) return;
    yabsys.IsPal = (type == VIDEOFORMATTYPE_PAL);
-   yabsys.MaxLineCount = type ? 313 : 263;
+   yabsys.fps = yabsys.IsPal ? 50 : 60;
+   yabsys.MaxLineCount = yabsys.IsPal ? 313 : 263;
+   if (Vdp2Regs == NULL) return;
 #ifdef WIN32
    QueryPerformanceFrequency((LARGE_INTEGER *)&yabsys.tickfreq);
 #elif defined(_arch_dreamcast)

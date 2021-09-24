@@ -43,6 +43,7 @@ typedef struct
    const char *biospath;
    const char *cdpath;
    const char *buppath;
+   const char *smpcpath;
    const char *mpegpath;
    const char *cartpath;
    const char *stvbiospath;
@@ -72,6 +73,7 @@ typedef struct
    int skipframe; //This should be used for real frame skip mechanism
    int wireframe_mode;
    int stv_favorite_region;
+   int auto_cart;
 } yabauseinit_struct;
 
 #define CLKTYPE_26MHZ           0
@@ -136,6 +138,8 @@ typedef struct
    int wireframe_mode;
    int stvInputType;
    int vdp1cycles;
+   u8 fps;
+   u8 screenOn;
 } yabsys_struct;
 
 extern yabsys_struct yabsys;

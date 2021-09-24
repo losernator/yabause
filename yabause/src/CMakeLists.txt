@@ -97,7 +97,7 @@ set(YAB_PORTS "qt;linux" CACHE STRING "List of ports to build")
 endif(WIN32)
 
 if (CMAKE_COMPILER_IS_GNUCC)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fomit-frame-pointer")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -fomit-frame-pointer")
 endif (CMAKE_COMPILER_IS_GNUCC)
 
 set(kronos_SOURCES
@@ -110,7 +110,6 @@ set(kronos_SOURCES
 	core/osd/src/osdcore.c
 	utils/src/profile.c
 	sys/vdp2/src/vdp2debug.c
-	core/m68k/Counter.cpp
 	sys/bios/src/bios.c
 	sys/vdp1/src/vdp1.c
 	sys/vdp2/src/vdp2.c
@@ -162,6 +161,8 @@ if (UNIX)
 elseif (WIN32)
 	add_definitions(-DYTSDIR=\"trans\")
 endif()
+#add translations
+include(${CMAKE_SOURCE_DIR}/l10n/CMakeLists.txt)
 
 #-------------------------------------------------------
 
@@ -455,6 +456,40 @@ if (YAB_WANT_SDL)
 	endif()
 endif()
 
+if (WIN32)
+	option(YAB_WANT_DIRECTSOUND "use DirectX sound core if available" ON)
+	option(YAB_WANT_DIRECTINPUT "use DirectX input core if available" ON)
+	# Direct X
+	if (YAB_WANT_DIRECTSOUND OR YAB_WANT_DIRECTINPUT)
+		find_package(DirectX)
+
+		if(DirectX_FOUND)
+			if (DirectX_INCLUDE_DIR AND DirectX_DXGUID_LIBRARY)
+				include_directories(${DirectX_INCLUDE_DIR})
+				set(KRONOS_LIBRARIES ${KRONOS_LIBRARIES} ${DirectX_DXGUID_LIBRARY})
+
+				if (YAB_WANT_DIRECTINPUT AND DirectX_INPUT8_LIBRARY)
+					add_definitions(-DHAVE_DIRECTINPUT)
+					set(kronos_SOURCES ${kronos_SOURCES} core/peripheral/dx/perdx.c)
+					set(kronos_HEADERS ${kronos_HEADERS} core/peripheral/dx/perdx.h)
+					set(KRONOS_LIBRARIES ${KRONOS_LIBRARIES} ${DirectX_INPUT8_LIBRARY})
+					add_definitions(-DHAVE_XINPUT)
+					set(KRONOS_LIBRARIES ${KRONOS_LIBRARIES} ${DirectX_XINPUT_LIBRARY} wbemuuid)
+					include_directories(core/peripheral/dx/)
+				endif()
+
+				if (YAB_WANT_DIRECTSOUND AND DirectX_SOUND_LIBRARY)
+					add_definitions(-DHAVE_DIRECTSOUND)
+					set(kronos_SOURCES ${kronos_SOURCES} core/sound/dx/snddx.c)
+					set(kronos_HEADERS ${kronos_HEADERS} core/sound/dx/snddx.h)
+					set(KRONOS_LIBRARIES ${KRONOS_LIBRARIES} ${DirectX_SOUND_LIBRARY})
+					include_directories(core/sound/dx/)
+				endif()
+			endif()
+		endif()
+	endif()
+endif()
+
 # OpenAL
 option(YAB_WANT_OPENAL "use OpenAL sound core if available" ON)
 if (YAB_WANT_OPENAL)
@@ -592,7 +627,7 @@ if (YAB_PORT_OSD)
 endif()
 
 # Exec from cache
-option(YAB_USE_CACHE "Allow external bus access to use cache" OFF)
+option(YAB_USE_CACHE "Allow external bus access to use cache" ON)
 if (YAB_USE_CACHE)
 	add_definitions(-DUSE_CACHE=1)
 endif()
@@ -645,8 +680,8 @@ else ()
 endif ()
 
 if (CMAKE_COMPILER_IS_GNUCC)
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c11 -D_DEFAULT_SOURCE -Wno-format -mfpmath=sse -m64 -march=native -funroll-loops")
-        set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -mfpmath=sse -m64 -march=native -funroll-loops")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c17 -D_DEFAULT_SOURCE -Wno-format -march=native -funroll-loops")
+        set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -march=native -funroll-loops")
 endif()
 
 if (CMAKE_COMPILER_IS_GNUCC AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 6.0)
@@ -662,13 +697,17 @@ if (MSVC)
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Ox")
 endif ()
 
+if (MSVC)
+add_compile_options(/MP)
+endif()
+
 if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "i686")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${YAB_OPTIMIZATION} -march=i686 -msse")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${YAB_OPTIMIZATION} -std=c++11")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${YAB_OPTIMIZATION} -std=c++17")
 endif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "i686")
 if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "x86_64")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${YAB_OPTIMIZATION}")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${YAB_OPTIMIZATION} -std=c++11")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${YAB_OPTIMIZATION} -mfpmath=sse -m64")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${YAB_OPTIMIZATION} -std=c++17 -mfpmath=sse -m64")
 endif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "x86_64")
 if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "armv5tel")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${YAB_OPTIMIZATION}")
@@ -678,12 +717,12 @@ if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "armv7l")
     set(CMAKE_CPP_FLAGS "${CMAKE_CPP_FLAGS} -O3 -mcpu=cortex-a8 -mfpu=vfp -mfloat-abi=hard")
 endif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "armv7l")
 if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "armv7-a")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99 -march=armv7ve -mcpu=cortex-a15 -mfpu=neon -ffast-math")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv7ve -std=c++11 -mcpu=cortex-a15 -mfpu=neon -ffast-math -fno-exceptions -fno-rtti")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c17 -march=armv7ve -mcpu=cortex-a15 -mfpu=neon -ffast-math")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv7ve -std=c++17 -mcpu=cortex-a15 -mfpu=neon -ffast-math -fno-exceptions -fno-rtti")
 endif()
 if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64")
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=armv8-a -ffast-math")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a -std=c++11  -ffast-math -fno-exceptions -fno-rtti  ")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=armv8-a -std=c++17  -ffast-math -fno-exceptions -fno-rtti  ")
 endif()
 
 # Warnings defined to know when we're breaking compilation with MSVC

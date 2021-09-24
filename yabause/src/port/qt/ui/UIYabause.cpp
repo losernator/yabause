@@ -43,6 +43,7 @@
 #include <QDateTime>
 
 #include <QDebug>
+#include <QMimeData>
 
 extern "C" {
 extern VideoInterface_struct *VIDCoreList[];
@@ -78,10 +79,22 @@ UIYabause::UIYabause( QWidget* parent )
 	// create glcontext
 	mYabauseGL = new YabauseGL( );
 	// and set it as central application widget
-        QWidget *container = QWidget::createWindowContainer(mYabauseGL);
-        container->setFocusPolicy( Qt::StrongFocus );
-        setFocusPolicy( Qt::StrongFocus );
-        container->setFocusProxy( this );
+	QWidget *container = QWidget::createWindowContainer(mYabauseGL);
+	container->setFocusPolicy( Qt::StrongFocus );
+	setFocusPolicy( Qt::StrongFocus );
+	container->setFocusProxy( this );
+	container->setAcceptDrops(false);
+
+	this->setAcceptDrops(true);
+
+	//bind auto start to trigger when gl is initialized. before this emulation will fail due to missing GL context
+	connect(mYabauseGL, &YabauseGL::glInitialized, [&]
+	{
+		auto const * const vs = QtYabause::volatileSettings();
+		if (vs->value("autostart").toBool())
+			aEmulationRun->trigger();
+	});
+
 	setCentralWidget( container );
 	oldMouseX = oldMouseY = 0;
 	mouseCaptured = false;
@@ -155,8 +168,6 @@ void UIYabause::showEvent( QShowEvent* e )
 			menubar->hide();
 		if ( vs->value( "View/Toolbar" ).toInt() == BD_ALWAYSHIDE )
 			toolBar->hide();
-		if ( vs->value( "autostart" ).toBool() )
-			aEmulationRun->trigger();
 		aEmulationVSync->setChecked( vs->value( "General/EnableVSync", 1 ).toBool() );
 		aViewFPS->setChecked( vs->value( "General/ShowFPS" ).toBool() );
 		mInit = true;
@@ -379,6 +390,8 @@ void UIYabause::toggleFullscreen( int width, int height, bool f, int videoFormat
 {
 }
 
+QPoint preFullscreenModeWindowPosition;
+
 void UIYabause::fullscreenRequested( bool f )
 {
 	if ( isFullScreen() && !f )
@@ -387,6 +400,7 @@ void UIYabause::fullscreenRequested( bool f )
 		setUnifiedTitleAndToolBarOnMac( true );
 #endif
 		showNormal();
+		this->move(preFullscreenModeWindowPosition);
 
 		VolatileSettings* vs = QtYabause::volatileSettings();
 		int menubarHide = vs->value( "View/Menubar" ).toInt();
@@ -408,10 +422,8 @@ void UIYabause::fullscreenRequested( bool f )
 
 		setMaximumSize( QWIDGETSIZE_MAX, QWIDGETSIZE_MAX );
 		setMinimumSize( 0,0 );
-		QPoint ps;
-		ps.setX(0);
-		ps.setY(0);
-		this->move(ps);
+		preFullscreenModeWindowPosition = this->pos();
+		this->move(0,0);
 
 		showFullScreen();
 
@@ -623,27 +635,9 @@ void UIYabause::on_aFileOpenISO_triggered()
 	}
 	else{
 		const QString fn = CommonDialogs::getOpenFileName( QtYabause::volatileSettings()->value( "Recents/ISOs" ).toString(), QtYabause::translate( "Select your iso/cue/bin/zip/chd file" ), QtYabause::translate( "CD Images (*.iso *.ISO *.cue *.CUE *.bin *.BIN *.mds *.MDS *.ccd *.CCD *.zip *.ZIP *.chd *.CHD)" ) );
-	        if ( !fn.isEmpty() )
-	        {
-		  VolatileSettings* vs = QtYabause::volatileSettings();
-		  const int currentCDCore = vs->value( "General/CdRom" ).toInt();
-		  const QString currentCdRomISO = vs->value( "General/CdRomISO" ).toString();
-
-		  QtYabause::settings()->setValue( "Recents/ISOs", fn );
-
-		  vs->setValue( "autostart", false );
-		  vs->setValue( "General/CdRom", ISOCD.id );
-		  vs->setValue( "General/CdRomISO", fn );
-
-		  if (mYabauseThread->CloseTray() != 0) {
-                    mYabauseThread->pauseEmulation( false, true );
+		loadGameFromFile(fn);
                   }
-		  mIsCdIn = true;
-
-		  refreshStatesActions();
 	        }
-	}
-}
 
 void UIYabause::on_aFileOpenCDRom_triggered()
 {
@@ -716,23 +710,21 @@ void UIYabause::on_aFileLoadStateAs_triggered()
 void UIYabause::on_aFileScreenshot_triggered()
 {
 	YabauseLocker locker( mYabauseThread );
-	// images filter that qt can write
-	QStringList filters;
-	foreach ( QByteArray ba, QImageWriter::supportedImageFormats() )
-		if ( !filters.contains( ba, Qt::CaseInsensitive ) )
-			filters << QString( ba ).toLower();
-	for ( int i = 0; i < filters.count(); i++ )
-		filters[i] = QtYabause::translate( "%1 Images (*.%2)" ).arg( filters[i].toUpper() ).arg( filters[i] );
 
 #if defined(HAVE_LIBGL) && !defined(QT_OPENGL_ES_1) && !defined(QT_OPENGL_ES_2)
 	glReadBuffer(GL_FRONT);
 #endif
 
+	QFileInfo const fileInfo(QtYabause::volatileSettings()->value("General/CdRomISO").toString());
+
 	// take screenshot of gl view
-	QImage screenshot = mYabauseGL->grabFramebuffer();
+	QImage const screenshot = mYabauseGL->grabFramebuffer();
+
+	auto const directory = QtYabause::volatileSettings()->value(QtYabause::SettingKeys::ScreenshotsDirectory, QtYabause::DefaultPaths::Screenshots()).toString();
+	auto const format = QtYabause::volatileSettings()->value(QtYabause::SettingKeys::ScreenshotsFormat, "png").toString();
 
 	// request a file to save to to user
-	QString s = CommonDialogs::getSaveFileName( QString(), QtYabause::translate( "Choose a location for your screenshot" ), filters.join( ";;" ) );
+	QString s = directory + "/" + fileInfo.baseName() + QString("_%1." + format).arg(QDateTime::currentDateTime().toString("dd_MM_yyyy-hh_mm_ss"));
 
 	// if the user didn't provide a filename extension, we force it to png
 	QFileInfo qfi( s );
@@ -952,4 +944,47 @@ void UIYabause::reset()
 void UIYabause::toggleEmulateMouse( bool enable )
 {
 	emulateMouse = enable;
+}
+
+int UIYabause::loadGameFromFile(QString const& fileName)
+{
+	YabauseLocker locker(mYabauseThread);
+
+	VolatileSettings* vs = QtYabause::volatileSettings();
+	const int currentCDCore = vs->value("General/CdRom").toInt();
+	const QString currentCdRomISO = vs->value("General/CdRomISO").toString();
+
+	QtYabause::settings()->setValue("Recents/ISOs", fileName);
+
+	vs->setValue("autostart", false);
+	vs->setValue("General/CdRom", ISOCD.id);
+	vs->setValue("General/CdRomISO", fileName);
+
+	if (mYabauseThread->CloseTray() != 0) {
+		mYabauseThread->pauseEmulation(false, true);
+	}
+	mIsCdIn = true;
+
+	refreshStatesActions();
+	return 0;
+}
+
+void UIYabause::dragEnterEvent(QDragEnterEvent* e)
+{
+	if (e->mimeData()->hasUrls()) {
+		e->acceptProposedAction();
+	}
+}
+
+void UIYabause::dropEvent(QDropEvent* e)
+{
+	auto urls = e->mimeData()->urls();
+	const QUrl& url = urls.first();
+	QString const& fileName = url.toLocalFile();
+	qDebug() << "Dropped file:" << fileName;
+
+	if (QFile::exists(fileName))
+	{
+		loadGameFromFile(fileName);
+	}
 }

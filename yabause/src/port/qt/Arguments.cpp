@@ -1,4 +1,5 @@
 #include "Arguments.h"
+
 #include "VolatileSettings.h"
 #include "QtYabause.h"
 
@@ -11,9 +12,7 @@
 #include <QStringListIterator>
 #include <QVector>
 #include <QVectorIterator>
-
-#include <stdlib.h>
-#include <stdio.h>
+#include <QFile>
 
 namespace Arguments
 {
@@ -42,9 +41,7 @@ namespace Arguments
 		void (*callback)(const QString& param);
 	};
 
-	static Option LAST_OPTION = { NULL, NULL, NULL, NULL, 0 };
-
-	static Option availableOptions[] =
+	static std::vector<Option> const availableOptions =
 	{
 		{ NULL,  "--autoframeskip=", "0|1", "Enable or disable auto frame skipping / limiting.",  2, autoframeskip },
 		{ NULL,  "--autoload=", "<SAVESTATE>", "Automatically start emulation and load a save state.",1, autoload },
@@ -55,49 +52,67 @@ namespace Arguments
 		{ "-c",  "--cdrom=", "<CDROM>",     "Choose the cdrom device.",                           4, cdrom },
 		{ "-f",  "--fullscreen", NULL,      "Start the emulator in fullscreen.",                  5, fullscreen },
 		{ "-h",  "--help", NULL,            "Show this help and exit.",                           0, help },
-		{ "-i",  "--iso=", "<ISO>",         "Choose a dump file.",                                4, iso },
-                { "-nb", "--no-bios", NULL,         "Use the emulated bios",                              3, nobios },
-                { "-ns", "--no-sound", NULL,        "Turns sound off.",                                   6, nosound },
+		{ "-i",  "--iso=", "<ISO>",         "Choose a dump image file. supports i.e. .cue, .iso, .zip", 4, iso },
+        { "-nb", "--no-bios", NULL,         "Use the emulated bios",                              3, nobios },
+        { "-ns", "--no-sound", NULL,        "Turns sound off.",                                   6, nosound },
 		{ "-v",  "--version", NULL,         "Show version and exit.",                             0, version },
-		LAST_OPTION
 	};
 
 	void parse()
 	{
-		QVector<Option *> choosenOptions(8);
-		QVector<QString> params(8);
+		QVector<Option const *> choosenOptions(static_cast<int>(availableOptions.size()));
+		QVector<QString> params(static_cast<int>(availableOptions.size()));
 
-		QStringList arguments = QApplication::arguments();
+		QStringList const arguments = QApplication::arguments();
 		QStringListIterator argit(arguments);
 
 		while(argit.hasNext())
 		{
-			QString argument = argit.next();
-			Option * option = & * availableOptions;
-			while(option->longname)
+			bool isFirst = !argit.hasPrevious();
+			QString const & argument = argit.next();
+
+			//if its a file its probably a game file so if so use it as such
+			if(QFile::exists(argument))
 			{
-				if (argument == option->shortname)
+				if (!isFirst)
 				{
-					choosenOptions[option->priority] = option;
-					if (option->parameter)
-						params[option->priority] = argit.next();
+					Option const & autoStartOption = *std::find_if(availableOptions.begin(), availableOptions.end(), [](Option const & e)
+					{
+						return e.shortname && strcmp(e.shortname, "-a") == 0;
+					});
+					choosenOptions[autoStartOption.priority] = &autoStartOption;
+					Option const & imageFileOption = *std::find_if(availableOptions.begin(), availableOptions.end(), [](Option const & e)
+					{
+						return e.shortname && strcmp(e.shortname, "-i") == 0;
+					});
+					choosenOptions[imageFileOption.priority] = &imageFileOption;
+					params[imageFileOption.priority] = argument;
 				}
-				if (argument.startsWith(option->longname))
+			}
+
+			for(Option const & option : availableOptions)
+			{
+				if (argument == option.shortname)
 				{
-					choosenOptions[option->priority] = option;
-					if (option->parameter)
-						params[option->priority] = argument.mid((int)strlen(option->longname));
+					choosenOptions[option.priority] = &option;
+					if (option.parameter)
+						params[option.priority] = argit.next();
 				}
-				option++;
+				if (argument.startsWith(option.longname))
+				{
+					choosenOptions[option.priority] = &option;
+					if (option.parameter)
+						params[option.priority] = argument.mid((int)strlen(option.longname));
+				}
 			}
 		}
 
-		for(int i = 0;i < 8;i++)
+		for(int i = 0; i < availableOptions.size(); i++)
 		{
-			Option * option = choosenOptions[i];
+			Option const * option = choosenOptions[i];
 			if (option)
 				if (option->parameter)
-					option->callback(params[i]);
+					option->callback(params[option->priority]);
 				else
 					option->callback(QString());
 		}
@@ -142,6 +157,12 @@ namespace Arguments
 		vs->setValue("General/Bios", param);
 	}
 
+	void biosSettings(const QString &param)
+	{
+		VolatileSettings * vs = QtYabause::volatileSettings();
+		vs->setValue("General/BiosSettings", param);
+	}
+
 	void syslangid(const QString& param)
 	{
 		VolatileSettings * vs = QtYabause::volatileSettings();
@@ -152,7 +173,7 @@ namespace Arguments
 		if (param.toLower() == "italian") { vs->setValue("General/SystemLanguageID", 4); }
 		if (param.toLower() == "japanese") { vs->setValue("General/SystemLanguageID", 5); }
 	}
-	
+
 	void cdrom(const QString& param)
 	{
 		VolatileSettings * vs = QtYabause::volatileSettings();
@@ -168,23 +189,25 @@ namespace Arguments
 
 	void help(const QString& param)
 	{
-		std::cout << "Yabause:" << std::endl;
+		std::cout << std::endl << "Yabause commands:" << std::endl;
 
-		Option * option = & * availableOptions;
-		while(option->longname)
+		for(Option const & option : availableOptions)
 		{
-			QString longandparam(option->longname);
-			if (option->parameter)
-				longandparam.append(option->parameter);
+			QString longandparam(option.longname);
+			if (option.parameter)
+				longandparam.append(option.parameter);
 
-			if (option->shortname)
-				std::cout << std::setw(5) << std::right << option->shortname << ", ";
+			if (option.shortname)
+			{
+				std::cout << std::setw(5) << std::right << option.shortname << ", ";
+			}
 			else
+			{
 				std::cout << std::setw(7) << ' ';
+			}
 			std::cout << std::setw(27) << std::left << longandparam.toLocal8Bit().constData()
-				<< option->description
+				<< option.description
 				<< std::endl;
-			option++;
 		}
 
 		exit(0);

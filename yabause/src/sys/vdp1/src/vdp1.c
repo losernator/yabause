@@ -83,9 +83,6 @@ static void abortVdp1() {
 //////////////////////////////////////////////////////////////////////////////
 
 u8 FASTCALL Vdp1RamReadByte(SH2_struct *context, u8* mem, u32 addr) {
-  // if (context != NULL){
-  //   context->cycles += 50;
-  // }
    addr &= 0x7FFFF;
    return T1ReadByte(mem, addr);
 }
@@ -93,9 +90,6 @@ u8 FASTCALL Vdp1RamReadByte(SH2_struct *context, u8* mem, u32 addr) {
 //////////////////////////////////////////////////////////////////////////////
 
 u16 FASTCALL Vdp1RamReadWord(SH2_struct *context, u8* mem, u32 addr) {
-  // if (context != NULL){
-  //   context->cycles += 50;
-  // }
     addr &= 0x07FFFF;
     return T1ReadWord(mem, addr);
 }
@@ -103,9 +97,6 @@ u16 FASTCALL Vdp1RamReadWord(SH2_struct *context, u8* mem, u32 addr) {
 //////////////////////////////////////////////////////////////////////////////
 
 u32 FASTCALL Vdp1RamReadLong(SH2_struct *context, u8* mem, u32 addr) {
-  // if (context != NULL){
-  //   context->cycles += 50;
-  // }
    addr &= 0x7FFFF;
    return T1ReadLong(mem, addr);
 }
@@ -113,9 +104,6 @@ u32 FASTCALL Vdp1RamReadLong(SH2_struct *context, u8* mem, u32 addr) {
 //////////////////////////////////////////////////////////////////////////////
 
 void FASTCALL Vdp1RamWriteByte(SH2_struct *context, u8* mem, u32 addr, u8 val) {
-  // if (context != NULL){
-  //   context->cycles += 2;
-  // }
    addr &= 0x7FFFF;
    if (CmdListLimit >= addr) {
      CmdListDrawn = 0;
@@ -130,9 +118,6 @@ void FASTCALL Vdp1RamWriteByte(SH2_struct *context, u8* mem, u32 addr, u8 val) {
 //////////////////////////////////////////////////////////////////////////////
 
 void FASTCALL Vdp1RamWriteWord(SH2_struct *context, u8* mem, u32 addr, u16 val) {
-  // if (context != NULL){
-  //   context->cycles += 2;
-  // }
    addr &= 0x7FFFF;
    if (CmdListLimit >= addr) {
      CmdListDrawn = 0;
@@ -147,9 +132,6 @@ void FASTCALL Vdp1RamWriteWord(SH2_struct *context, u8* mem, u32 addr, u16 val) 
 //////////////////////////////////////////////////////////////////////////////
 
 void FASTCALL Vdp1RamWriteLong(SH2_struct *context, u8* mem, u32 addr, u32 val) {
-  // if (context != NULL){
-  //   context->cycles += 2;
-  // }
    addr &= 0x7FFFF;
    if (CmdListLimit >= addr) {
      CmdListDrawn = 0;
@@ -1040,7 +1022,8 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
 {
   int cylesPerLine  = getVdp1CyclesPerLine();
 
-  // if (CmdListDrawn != 0) return; //The command list has already been drawn for the current frame
+  if (CmdListDrawn != 0) return; //The command list has already been drawn for the current frame
+  CmdListLimit = 0;
 
   if (Vdp1External.status == VDP1_STATUS_IDLE) {
     returnAddr = 0xffffffff;
@@ -1175,7 +1158,7 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
             regs->EDSR |= 2;
             regs->COPR = (regs->addr & 0x7FFFF) >> 3;
             CmdListDrawn = 1;
-            CmdListLimit = (regs->addr & 0x7FFFF);
+            CmdListLimit = MAX((regs->addr & 0x7FFFF), regs->addr);
             return;
          }
       } else {
@@ -1190,7 +1173,7 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
 		  Vdp1External.status = VDP1_STATUS_IDLE;
 		  regs->COPR = (regs->addr & 0x7FFFF) >> 3;
       CmdListDrawn = 1;
-      CmdListLimit = (regs->addr & 0x7FFFF);
+      CmdListLimit = MAX((regs->addr & 0x7FFFF), regs->addr);
 		  return;
 	  }
 
@@ -1200,7 +1183,19 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
          regs->addr += 0x20;
          break;
       case 1: // ASSIGN, jump to CMDLINK
-         regs->addr = T1ReadWord(ram, regs->addr + 2) * 8;
+        {
+          u32 oldAddr = regs->addr;
+          regs->addr = T1ReadWord(ram, regs->addr + 2) * 8;
+          if ((regs->addr == oldAddr) && (command & 0x4000))   {
+            //The next adress is the same as the old adress and the command is skipped => Exit
+            regs->lCOPR = (regs->addr & 0x7FFFF) >> 3;
+            vdp1_clock = 0;
+            CmdListDrawn = 1;
+            CmdListLimit = MAX((regs->addr & 0x7FFFF), regs->addr);
+            checkClipCmd(&sysClipCmd, &usrClipCmd, &localCoordCmd, ram, regs);
+            return;
+          }
+        }
          break;
       case 2: // CALL, call a subroutine
          if (returnAddr == 0xFFFFFFFF)
@@ -1219,6 +1214,7 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
       }
 
       command = Vdp1RamReadWord(NULL,ram, regs->addr);
+      CmdListLimit = MAX((regs->addr & 0x7FFFF), regs->addr);
       //If we change directly CPR to last value, scorcher will not boot.
       //If we do not change it, Noon will not start
       //So store the value and update COPR with last value at VBlank In
@@ -1226,11 +1222,11 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
       commandCounter++;
    }
    if (command & 0x8000) {
-        LOG("VDP1: Command Finished! count = %d @ %08X", command_count, regs->addr);
+        LOG("VDP1: Command Finished! count = %d @ %08X", commandCounter, regs->addr);
         Vdp1External.status = VDP1_STATUS_IDLE;
-        CmdListDrawn = 1;
-        CmdListLimit = (regs->addr & 0x7FFFF);
    }
+   CmdListDrawn = 1;
+   CmdListLimit = MAX((regs->addr & 0x7FFFF), regs->addr);
    checkClipCmd(&sysClipCmd, &usrClipCmd, &localCoordCmd, ram, regs);
 }
 
@@ -2167,6 +2163,10 @@ void ToggleVDP1(void)
    Vdp1External.disptoggle ^= 1;
 }
 
+static void RequestVdp1ToDraw() {
+  needVdp1draw = 1;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 static void startField(void) {
   int isrender = 0;
@@ -2208,13 +2208,13 @@ static void startField(void) {
       FRAMELOG("[VDP1] PTMR == 0x2 start drawing immidiatly\n");
       abortVdp1();
       vdp1_clock = 0;
-      needVdp1draw = 1;
+      RequestVdp1ToDraw();
     }
   }
   else {
     if ( Vdp1External.status == VDP1_STATUS_RUNNING) {
       LOG("[VDP1] Start Drawing continue");
-      needVdp1draw = 1;
+      RequestVdp1ToDraw();
     }
   }
 
@@ -2258,7 +2258,7 @@ void Vdp1HBlankIN(void)
     if (Vdp1External.plot_trigger_line == yabsys.LineCount){
       if(Vdp1External.plot_trigger_done == 0) {
         vdp1_clock = 0;
-        needVdp1draw = 1;
+        RequestVdp1ToDraw();
         Vdp1External.plot_trigger_done = 1;
       }
     }

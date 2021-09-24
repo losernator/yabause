@@ -92,9 +92,9 @@ u8 Vdp2RamIsUpdated(void)
 }
 
 u8 FASTCALL Vdp2RamReadByte(SH2_struct *context, u8* mem, u32 addr) {
-  if (context != NULL){
-    context->cycles += getVramCycle(addr);;
-  }
+  // if (context != NULL){
+  //   context->cycles += getVramCycle(addr);;
+  // }
   if (Vdp2Regs->VRSIZE & 0x8000)
     addr &= 0xEFFFF;
   else
@@ -105,9 +105,9 @@ u8 FASTCALL Vdp2RamReadByte(SH2_struct *context, u8* mem, u32 addr) {
 //////////////////////////////////////////////////////////////////////////////
 
 u16 FASTCALL Vdp2RamReadWord(SH2_struct *context, u8* mem, u32 addr) {
-  if (context != NULL){
-    context->cycles += getVramCycle(addr);;
-  }
+  // if (context != NULL){
+  //   context->cycles += getVramCycle(addr);;
+  // }
   if (Vdp2Regs->VRSIZE & 0x8000)
     addr &= 0xEFFFF;
   else
@@ -118,9 +118,9 @@ u16 FASTCALL Vdp2RamReadWord(SH2_struct *context, u8* mem, u32 addr) {
 //////////////////////////////////////////////////////////////////////////////
 
 u32 FASTCALL Vdp2RamReadLong(SH2_struct *context, u8* mem, u32 addr) {
-  if (context != NULL){
-    context->cycles += getVramCycle(addr);;
-  }
+  // if (context != NULL){
+  //   context->cycles += getVramCycle(addr);;
+  // }
   if (Vdp2Regs->VRSIZE & 0x8000)
     addr &= 0xEFFFF;
   else
@@ -131,9 +131,9 @@ u32 FASTCALL Vdp2RamReadLong(SH2_struct *context, u8* mem, u32 addr) {
 //////////////////////////////////////////////////////////////////////////////
 
 void FASTCALL Vdp2RamWriteByte(SH2_struct *context, u8* mem, u32 addr, u8 val) {
-  if (context != NULL){
-    context->cycles += getVramCycle(addr);;
-  }
+  // if (context != NULL){
+  //   context->cycles += getVramCycle(addr);;
+  // }
   if (Vdp2Regs->VRSIZE & 0x8000)
     addr &= 0xEFFFF;
   else
@@ -158,9 +158,9 @@ void FASTCALL Vdp2RamWriteByte(SH2_struct *context, u8* mem, u32 addr, u8 val) {
 //////////////////////////////////////////////////////////////////////////////
 
 void FASTCALL Vdp2RamWriteWord(SH2_struct *context, u8* mem, u32 addr, u16 val) {
-  if (context != NULL){
-    context->cycles += getVramCycle(addr);;
-  }
+  // if (context != NULL){
+  //   context->cycles += getVramCycle(addr);;
+  // }
   if (Vdp2Regs->VRSIZE & 0x8000)
     addr &= 0xEFFFF;
   else
@@ -185,9 +185,9 @@ void FASTCALL Vdp2RamWriteWord(SH2_struct *context, u8* mem, u32 addr, u16 val) 
 //////////////////////////////////////////////////////////////////////////////
 
 void FASTCALL Vdp2RamWriteLong(SH2_struct *context, u8* mem, u32 addr, u32 val) {
-  if (context != NULL){
-    context->cycles += getVramCycle(addr);;
-  }
+  // if (context != NULL){
+  //   context->cycles += getVramCycle(addr);;
+  // }
   if (Vdp2Regs->VRSIZE & 0x8000)
     addr &= 0xEFFFF;
   else
@@ -398,6 +398,7 @@ void Vdp2Reset(void) {
    Vdp2Regs->COBB = 0x0000;
 
    yabsys.VBlankLineCount = 225;
+   yabsys.screenOn = 0;
    Vdp2Internal.ColorMode = 0;
 
    Vdp2External.disptoggle = 0xFF;
@@ -708,6 +709,7 @@ Vdp2 * Vdp2RestoreRegs(int line, Vdp2* lines) {
 //////////////////////////////////////////////////////////////////////////////
 void Vdp2VBlankOUT(void) {
   g_frame_count++;
+  yabsys.screenOn = (Vdp2Regs->TVMD & 0x8000)!=0;
   FRAMELOG("***** VOUT %d *****", g_frame_count);
   if (VIDCore != NULL && VIDCore->id != VIDCORE_SOFT) YglUpdateColorRam();
   if (Vdp2External.perline_alpha == Vdp2External.perline_alpha_a){
@@ -787,7 +789,7 @@ u16 FASTCALL Vdp2ReadWord(SH2_struct *context, u8* mem, u32 addr) {
          Vdp2Regs->TVSTAT &= 0xFCFF;
 
          // if TVMD's DISP bit is cleared, TVSTAT's VBLANK bit is always set
-         if (Vdp2Regs->TVMD & 0x8000)
+         if (yabsys.screenOn != 0)
             return tvstat;
          else
             return (tvstat | 0x8);

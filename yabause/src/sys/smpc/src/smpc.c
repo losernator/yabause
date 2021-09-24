@@ -50,25 +50,28 @@ SmpcInternal * SmpcInternalVars;
 static u8 * SmpcRegsT;
 static int intback_wait_for_line = 0;
 static u8 bustmp = 0;
+static const char *smpcfilename = NULL;
 
 //#define SMPCLOG printf
 
 //////////////////////////////////////////////////////////////////////////////
 
-int SmpcInit(u8 regionid, int clocksync, u32 basetime, u8 languageid) {
+int SmpcInit(u8 regionid, int clocksync, u32 basetime, const char *smpcpath, u8 languageid) {
    if ((SmpcRegsT = (u8 *) calloc(1, sizeof(Smpc))) == NULL)
       return -1;
- 
+
    SmpcRegs = (Smpc *) SmpcRegsT;
 
    if ((SmpcInternalVars = (SmpcInternal *) calloc(1, sizeof(SmpcInternal))) == NULL)
       return -1;
-  
+
    SmpcInternalVars->regionsetting = regionid;
    SmpcInternalVars->regionid = regionid;
    SmpcInternalVars->clocksync = clocksync;
    SmpcInternalVars->basetime = basetime ? basetime : time(NULL);
    SmpcInternalVars->languageid = languageid;
+
+   smpcfilename = smpcpath;
 
    return 0;
 }
@@ -107,11 +110,53 @@ void SmpcRecheckRegion(void) {
 
 //////////////////////////////////////////////////////////////////////////////
 
+static int SmpcSaveBiosSettings(void) {
+   FILE *fp;
+   if (smpcfilename == NULL)
+      return -1;
+   if ((fp = fopen(smpcfilename, "wb")) == NULL)
+      return -1;
+   fwrite(SmpcInternalVars->SMEM, 1, sizeof(SmpcInternalVars->SMEM), fp);
+   fclose(fp);
+   return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+static int SmpcLoadBiosSettings(void) {
+   FILE *fp;
+   if (smpcfilename == NULL)
+      return -1;
+   if ((fp = fopen(smpcfilename, "rb")) == NULL)
+      return -1;
+   fread(SmpcInternalVars->SMEM, 1, sizeof(SmpcInternalVars->SMEM), fp);
+   SmpcInternalVars->languageid = SmpcInternalVars->SMEM[3] & 0xF;
+   fclose(fp);
+   return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+static void SmpcSetLanguage(void) {
+   SmpcInternalVars->SMEM[3] = (SmpcInternalVars->SMEM[3] & 0xF0) | SmpcInternalVars->languageid;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
+int SmpcGetLanguage(void) {
+   // TODO : use this in standalone to store currently set language into config
+   return SmpcInternalVars->languageid;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
 void SmpcReset(void) {
    memset((void *)SmpcRegs, 0, sizeof(Smpc));
    memset((void *)SmpcInternalVars->SMEM, 0, 4);
 
    SmpcRecheckRegion();
+   SmpcLoadBiosSettings();
+   SmpcSetLanguage(); // to (re)apply currently stored languageid
 
    SmpcInternalVars->dotsel = 0;
    SmpcInternalVars->mshnmi = 0;
@@ -320,9 +365,6 @@ static void SmpcINTBACKStatus(void) {
    // bit 6 -> CDRES
    SmpcRegs->OREG[11] = SmpcInternalVars->cdres << 6; // FIXME
 
-   // set language
-   SmpcInternalVars->SMEM[3] = (SmpcInternalVars->SMEM[3] & 0xF0) | SmpcInternalVars->languageid;
-
    // SMEM
    for(i = 0;i < 4;i++)
       SmpcRegs->OREG[12+i] = SmpcInternalVars->SMEM[i];
@@ -485,6 +527,10 @@ static void SmpcSETSMEM(void) {
 
    for(i = 0;i < 4;i++)
       SmpcInternalVars->SMEM[i] = SmpcRegs->IREG[i];
+
+   // language might have changed, let's store the new id
+   SmpcInternalVars->languageid = SmpcInternalVars->SMEM[3] & 0xF;
+   SmpcSaveBiosSettings();
 
    SmpcRegs->OREG[31] = 0x17;
 }

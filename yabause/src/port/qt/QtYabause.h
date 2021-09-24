@@ -41,6 +41,12 @@ extern "C"
 	#include "sndal.h"
 	#include "sndsdl.h"
 	#include "persdljoy.h"
+#if defined HAVE_DIRECTINPUT
+	#include "perdx.h"
+#endif
+#if defined HAVE_DIRECTSOUND
+	#include "snddx.h"
+#endif
 	#include "permacjoy.h"
 	#include "perlinuxjoy.h"
 	#include "debug.h"
@@ -65,6 +71,7 @@ extern "C"
 
 #include <QString>
 #include <QMap>
+#include <QDateTime>
 
 class UIYabause;
 class Settings;
@@ -79,6 +86,30 @@ typedef struct
 
 namespace QtYabause
 {
+	namespace SettingKeys
+	{
+		static constexpr char const* const ScreenshotsDirectory = "General/ScreenshotsDirectory";
+		static constexpr char const* const ScreenshotsFormat = "General/ScreenshotsFormat";
+	};
+
+	namespace VolatileSettingKeys
+	{
+		static constexpr char const* const CartridgePath = "Cartridge/Path";
+	};
+
+	namespace DefaultPaths
+	{
+		QString Screenshots();
+		QString Cartridge();
+	};
+
+	struct QtYabauseError
+	{
+		int ErrorType;
+		QString ErrorMessage;
+		QDateTime ErrorTimestamp = QDateTime::currentDateTime();
+	};
+
 	void appendLog( const char* str );
 	UIYabause* mainWindow( bool create = true );
 	Settings* settings( bool create = true );

@@ -23,6 +23,10 @@
 
 #include "memory.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define REGION_AUTODETECT               0
 #define REGION_JAPAN                    1
 #define REGION_ASIANTSC                 2
@@ -91,9 +95,10 @@ typedef struct {
 
 extern SmpcInternal * SmpcInternalVars;
 
-int SmpcInit(u8 regionid, int clocksync, u32 basetime, u8 languageid);
+int SmpcInit(u8 regionid, int clocksync, u32 basetime, const char *smpcpath, u8 languageid);
 void SmpcDeInit(void);
 void SmpcRecheckRegion(void);
+int SmpcGetLanguage(void);
 void SmpcReset(void);
 void SmpcResetButton(void);
 void SmpcExec(s32 t);
@@ -110,4 +115,9 @@ void FASTCALL	SmpcWriteLong(SH2_struct *context, u8*, u32, u32);
 
 int SmpcSaveState(void ** stream);
 int SmpcLoadState(const void * stream, int version, int size);
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif

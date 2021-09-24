@@ -1,4 +1,4 @@
-/*  Copyright 2005-2006 Theo Berkau
+/*  Copyright 2006 Theo Berkau
 
     This file is part of Yabause.
 
@@ -17,33 +17,14 @@
     Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301  USA
 */
 
-#ifndef ERROR_H
-#define ERROR_H
+#ifndef PERDX_H
+#define PERDX_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+#define DIRECTINPUT_VERSION 0x0800
+#include <dinput.h>
 
-#define YAB_ERR_UNKNOWN                 0
-#define YAB_ERR_FILENOTFOUND            1
-#define YAB_ERR_MEMORYALLOC             2
-#define YAB_ERR_FILEREAD                3
-#define YAB_ERR_FILEWRITE               4
-#define YAB_ERR_CANNOTINIT              5
+#define PERCORE_DIRECTX 2
 
-#define YAB_ERR_SH2INVALIDOPCODE        6
-#define YAB_ERR_SH2READ                 7
-#define YAB_ERR_SH2WRITE                8
-
-#define YAB_ERR_SDL                     9
-
-#define YAB_ERR_OTHER                   10
-
-void YabSetError(int type, const void *extra);
-void YabErrorMsg(const char * format, ...);
-
-#ifdef __cplusplus
-}
-#endif
+extern PerInterface_struct PERDIRECTX;
 
 #endif
