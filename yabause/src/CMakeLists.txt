@@ -383,14 +383,6 @@ if (YAB_WANT_OPENGL AND (YAB_RGB STREQUAL ""))
 		)
 		add_definitions(-DYAB_PORT_OSD)
 
-		include(FindGLUT)
-		if (GLUT_FOUND)
-			message (WARNING "Deprecated Glut found. Support will be removed in the future. ")
-			include_directories(${GLUT_INCLUDE_DIR})
-			add_definitions(-DHAVE_LIBGLUT=1)
-			set(KRONOS_LIBRARIES ${KRONOS_LIBRARIES} ${GLUT_LIBRARIES})
-		endif()
-
 		# glXGetProcAddress
 		set(CMAKE_REQUIRED_LIBRARIES ${CMAKE_REQUIRED_LIBRARIES} ${OPENGL_CURRENT_LIBRARIES})
 		check_function_exists(glXGetProcAddress GLXGETPROCADDRESS_OK)
@@ -457,8 +449,8 @@ if (YAB_WANT_SDL)
 endif()
 
 if (WIN32)
-	option(YAB_WANT_DIRECTSOUND "use DirectX sound core if available" ON)
-	option(YAB_WANT_DIRECTINPUT "use DirectX input core if available" ON)
+	option(YAB_WANT_DIRECTSOUND "use DirectX sound core if available" OFF)
+	option(YAB_WANT_DIRECTINPUT "use DirectX input core if available" OFF)
 	# Direct X
 	if (YAB_WANT_DIRECTSOUND OR YAB_WANT_DIRECTINPUT)
 		find_package(DirectX)

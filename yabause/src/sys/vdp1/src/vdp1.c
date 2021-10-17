@@ -48,10 +48,10 @@ Vdp1 * Vdp1Regs;
 Vdp1External_struct Vdp1External;
 
 vdp1cmdctrl_struct cmdBufferBeingProcessed[2000];
-int nbCmdToProcess = 0;
 
 int vdp1_clock = 0;
 
+static int nbCmdToProcess = 0;
 static int CmdListDrawn = 0;
 static int CmdListLimit = 0x80000;
 
@@ -71,6 +71,11 @@ static void FASTCALL Vdp1ReadCommand(vdp1cmd_struct *cmd, u32 addr, u8* ram);
   if (((A)) < -1024) { DEBUG_BAD_COORD("Bad(-1024) %x (%d, 0x%x)\n", (A), (A), toto);}\
   if (((A)) > 1023) { DEBUG_BAD_COORD("Bad(1023) %x (%d, 0x%x)\n", (A), (A), toto);}\
 }
+
+static void RequestVdp1ToDraw() {
+  needVdp1draw = 1;
+}
+
 
 static void abortVdp1() {
   if (Vdp1External.status == VDP1_STATUS_RUNNING) {
@@ -394,6 +399,14 @@ static void updateTVMRMode() {
   Vdp1External.useVBlankErase = 0;
   if (((Vdp1Regs->FBCR & 3) == 3) && (((Vdp1Regs->TVMR >> 3) & 0x01) == 1)) {
     Vdp1External.useVBlankErase = 1;
+  } else {
+    if ((((Vdp1Regs->TVMR >> 3) & 0x01) == 1)) {
+      //VBE can be one only when FCM and FCT are 1
+      LOG("Prohibited FBCR/TVMR values\n");
+      // Assume prohibited modes behave like if VBE/FCT/FCM were all 1
+      Vdp1External.manualchange = 1;
+      Vdp1External.useVBlankErase = 1;
+    }
   }
 }
 
@@ -401,9 +414,17 @@ static void updateFBCRMode() {
   Vdp1External.manualchange = 0;
   Vdp1External.onecyclemode = 0;
   Vdp1External.useVBlankErase = 0;
-  if (((Vdp1Regs->TVMR >> 3) & 0x01) == 1){
-    Vdp1External.manualchange = ((Vdp1Regs->FBCR & 3) == 3);
-    Vdp1External.useVBlankErase = 1;
+  if (((Vdp1Regs->TVMR >> 3) & 0x01) == 1){ //VBE is set
+    if ((Vdp1Regs->FBCR & 3) == 3) {
+      Vdp1External.manualchange = 1;
+      Vdp1External.useVBlankErase = 1;
+    } else {
+      //VBE can be one only when FCM and FCT are 1
+      LOG("Prohibited FBCR/TVMR values\n");
+      // Assume prohibited modes behave like if VBE/FCT/FCM were all 1
+      Vdp1External.manualchange = 1;
+      Vdp1External.useVBlankErase = 1;
+    }
   } else {
     //Manual erase shall not be reseted but need to save its current value
     // Only at frame change the order is executed.
@@ -422,6 +443,7 @@ static void Vdp1TryDraw(void) {
 }
 
 void FASTCALL Vdp1WriteWord(SH2_struct *context, u8* mem, u32 addr, u16 val) {
+  u16 oldPTMR = 0;
   addr &= 0xFF;
   switch(addr) {
     case 0x0:
@@ -441,6 +463,7 @@ void FASTCALL Vdp1WriteWord(SH2_struct *context, u8* mem, u32 addr, u16 val) {
         //Skeleton warriors is writing 0xFFF to PTMR. It looks like the behavior is 0x2
           val = 0x2;
       }
+      oldPTMR = Vdp1Regs->PTMR;
       Vdp1Regs->PTMR = val;
       Vdp1External.plot_trigger_line = -1;
       Vdp1External.plot_trigger_done = 0;
@@ -449,9 +472,16 @@ void FASTCALL Vdp1WriteWord(SH2_struct *context, u8* mem, u32 addr, u16 val) {
         Vdp1External.plot_trigger_line = yabsys.LineCount;
         abortVdp1();
         vdp1_clock = 0;
-        needVdp1draw = 1;
+        RequestVdp1ToDraw();
         Vdp1TryDraw();
         Vdp1External.plot_trigger_done = 1;
+      }
+      if ((val == 0x2) && (oldPTMR == 0x0)){
+        FRAMELOG("[VDP1] PTMR == 0x2 start drawing immidiatly\n");
+        abortVdp1();
+        vdp1_clock = 0;
+        RequestVdp1ToDraw();
+        Vdp1TryDraw();
       }
       break;
       case 0x6:
@@ -577,12 +607,12 @@ static int Vdp1NormalSpriteDraw(vdp1cmd_struct *cmd, u8 * ram, Vdp1 * regs, u8* 
   cmd->CMDXA += regs->localX;
   cmd->CMDYA += regs->localY;
 
-  cmd->CMDXB = cmd->CMDXA + MAX(1,cmd->w);
+  cmd->CMDXB = cmd->CMDXA + MAX(1,cmd->w) - 1;
   cmd->CMDYB = cmd->CMDYA;
-  cmd->CMDXC = cmd->CMDXA + MAX(1,cmd->w);
-  cmd->CMDYC = cmd->CMDYA + MAX(1,cmd->h);
+  cmd->CMDXC = cmd->CMDXA + MAX(1,cmd->w) - 1;
+  cmd->CMDYC = cmd->CMDYA + MAX(1,cmd->h) -1;
   cmd->CMDXD = cmd->CMDXA;
-  cmd->CMDYD = cmd->CMDYA + MAX(1,cmd->h);
+  cmd->CMDYD = cmd->CMDYA + MAX(1,cmd->h) - 1;
 
   int area = abs((cmd->CMDXA*cmd->CMDYB - cmd->CMDXB*cmd->CMDYA) + (cmd->CMDXB*cmd->CMDYC - cmd->CMDXC*cmd->CMDYB) + (cmd->CMDXC*cmd->CMDYD - cmd->CMDXD*cmd->CMDYC) + (cmd->CMDXD*cmd->CMDYA - cmd->CMDXA *cmd->CMDYD))/2;
   yabsys.vdp1cycles+= MIN(1000, 70 + (area));
@@ -1033,6 +1063,7 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
     usrClipCmd = NULL;
     sysClipCmd = NULL;
     localCoordCmd = NULL;
+    nbCmdToProcess = 0;
   }
 
    Vdp1External.status = VDP1_STATUS_RUNNING;
@@ -1049,7 +1080,6 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
    vdp1Ram_update_end = 0x0;
    Vdp1External.checkEDSR = 0;
 
-   nbCmdToProcess = 0;
    yabsys.vdp1cycles = 0;
    while (!(command & 0x8000) && commandCounter < 2000) { // fix me
      int ret;
@@ -1072,7 +1102,6 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
             ret = Vdp1NormalSpriteDraw(&ctrl->cmd, ram, regs, back_framebuffer);
             if (ret == 0) vdp1_clock = 0; //Incorrect command, wait next line to continue
             if (ret == 1) nbCmdToProcess++;
-            ctrl->completionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             setupSpriteLimit(ctrl);
             break;
          case 1: // scaled sprite draw
@@ -1084,7 +1113,6 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
             ret = Vdp1ScaledSpriteDraw(&ctrl->cmd, ram, regs, back_framebuffer);
             if (ret == 0) vdp1_clock = 0; //Incorrect command, wait next line to continue
             if (ret == 1) nbCmdToProcess++;
-            ctrl->completionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             setupSpriteLimit(ctrl);
             break;
          case 2: // distorted sprite draw
@@ -1098,7 +1126,6 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
             ret = Vdp1DistortedSpriteDraw(&ctrl->cmd, ram, regs, back_framebuffer);
             if (ret == 0) vdp1_clock = 0; //Incorrect command, wait next line to continue
             if (ret == 1) nbCmdToProcess++;
-            ctrl->completionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             setupSpriteLimit(ctrl);
             break;
          case 4: // polygon draw
@@ -1108,7 +1135,6 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
             ctrl->ignitionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             checkClipCmd(&sysClipCmd, &usrClipCmd, &localCoordCmd, ram, regs);
             nbCmdToProcess += Vdp1PolygonDraw(&ctrl->cmd, ram, regs, back_framebuffer);
-            ctrl->completionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             setupSpriteLimit(ctrl);
             break;
          case 5: // polyline draw
@@ -1119,7 +1145,6 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
             ctrl->ignitionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             checkClipCmd(&sysClipCmd, &usrClipCmd, &localCoordCmd, ram, regs);
             nbCmdToProcess += Vdp1PolylineDraw(&ctrl->cmd, ram, regs, back_framebuffer);
-            ctrl->completionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             setupSpriteLimit(ctrl);
             break;
          case 6: // line draw
@@ -1129,7 +1154,6 @@ void Vdp1DrawCommands(u8 * ram, Vdp1 * regs, u8* back_framebuffer)
             ctrl->ignitionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             checkClipCmd(&sysClipCmd, &usrClipCmd, &localCoordCmd, ram, regs);
             nbCmdToProcess += Vdp1LineDraw(&ctrl->cmd, ram, regs, back_framebuffer);
-            ctrl->completionLine = MIN(yabsys.LineCount + yabsys.vdp1cycles/cylesPerLine,yabsys.MaxLineCount-1);
             setupSpriteLimit(ctrl);
             break;
          case 8: // user clipping coordinates
@@ -2162,11 +2186,6 @@ void ToggleVDP1(void)
 {
    Vdp1External.disptoggle ^= 1;
 }
-
-static void RequestVdp1ToDraw() {
-  needVdp1draw = 1;
-}
-
 //////////////////////////////////////////////////////////////////////////////
 static void startField(void) {
   int isrender = 0;
@@ -2229,20 +2248,25 @@ static void startField(void) {
 
 void Vdp1HBlankIN(void)
 {
+  int needToCompose = 0;
   if (nbCmdToProcess > 0) {
     for (int i = 0; i<nbCmdToProcess; i++) {
-      if (cmdBufferBeingProcessed[i].ignitionLine == yabsys.LineCount+1) {
+      if (cmdBufferBeingProcessed[i].ignitionLine == (yabsys.LineCount+1)) {
         if (!((cmdBufferBeingProcessed[i].start_addr >= vdp1Ram_update_end) ||
             (cmdBufferBeingProcessed[i].end_addr <= vdp1Ram_update_start))) {
+              needToCompose = 1;
           if (Vdp1External.checkEDSR == 0) {
-            if (VIDCore->Vdp1RegenerateCmd != NULL)
+            if (VIDCore->Vdp1RegenerateCmd != NULL) {
               VIDCore->Vdp1RegenerateCmd(&cmdBufferBeingProcessed[i].cmd);
+            }
           }
         }
         cmdBufferBeingProcessed[i].ignitionLine = -1;
       }
     }
-    if (cmdBufferBeingProcessed[nbCmdToProcess-1].ignitionLine == -1) {
+    if (needToCompose == 1) {
+      //We need to evaluate end line and not ignition line? It is improving doom if we better take care of the concurrency betwwen vdp1 update and command list"
+      nbCmdToProcess = 0;
       vdp1Ram_update_start = 0x80000;
       vdp1Ram_update_end = 0x0;
       if (VIDCore != NULL) {

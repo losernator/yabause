@@ -312,22 +312,34 @@ const char prg_rbg_rpmd1_2w[] =
 "   } \n"
 "  }\n";
 
-
 const char prg_rbg_rpmd2_2w[] =
 "  paramid = 0; \n"
 "  ky = para[paramid].ky; \n"
 "  lineaddr = para[paramid].lineaddr; \n"
 "  if( para[paramid].coefenab != 0 ){ \n"
-"    if( GetKValue(paramid,pos,ky,lineaddr ) == -1 ) { \n"
-"      paramid=1;\n"
-"      if( para[paramid].coefenab != 0 ){ \n"
+"    if( para[1].coefenab != 0 ){ \n"
+"      if( GetKValue(0,pos,ky,lineaddr ) == -1 ) { \n"
+"        paramid = 1; \n"
+"  			 ky = para[paramid].ky; \n"
+"  			 lineaddr = para[paramid].lineaddr; \n"
 "        if( GetKValue(paramid,pos,ky,lineaddr ) == -1 ) { \n"
-"     if ( para[paramid].linecoefenab != 0) imageStore(lnclSurface,texel,Vdp2ColorRamGetColorOffset(lineaddr));\n"
-"     else imageStore(lnclSurface,texel,vec4(0.0));\n"
-"   	imageStore(outSurface,texel,vec4(0.0)); return;} \n"
-"      }else{ \n"
-"        ky = para[paramid].ky; \n"
-"      }\n"
+"          if ( para[paramid].linecoefenab != 0) \n"
+"            imageStore(lnclSurface,texel,Vdp2ColorRamGetColorOffset(lineaddr));\n"
+"          else \n"
+"            imageStore(lnclSurface,texel,vec4(0.0));\n"
+"   	     imageStore(outSurface,texel,vec4(0.0));\n"
+"          return;\n"
+"        } \n"
+"      } \n"
+"    } else {\n"
+"        if( GetKValue(paramid,pos,ky,lineaddr ) == -1 ) { \n"
+"          if ( para[paramid].linecoefenab != 0) \n"
+"            imageStore(lnclSurface,texel,Vdp2ColorRamGetColorOffset(lineaddr));\n"
+"          else \n"
+"            imageStore(lnclSurface,texel,vec4(0.0));\n"
+"   	     imageStore(outSurface,texel,vec4(0.0));\n"
+"          return;\n"
+"        } \n"
 "    }\n"
 "  }\n";
 
@@ -696,6 +708,7 @@ const GLchar * a_prg_rbg_0_2w_p1_8bpp[] = {
 	prg_generate_rbg_end };
 
 //ICI
+//Last Bronx
 const GLchar * a_prg_rbg_0_2w_p2_8bpp[] = {
 	prg_generate_rbg,
 	prg_continue_rbg,
@@ -1653,7 +1666,7 @@ DEBUGWIP("Init\n");
 				else {
 					if (rbg->info.patterndatasize == 1) {
 						switch (rbg->info.colornumber) {
-						case 0: { // BlukSlash
+						case 0: { // BlukSlash, J League Go Go Goal
 							DEBUGWIP("prog %d\n", __LINE__);glUseProgram(prg_rbg_2_2w_p1_4bpp_);
 							break;
 						}
@@ -2239,7 +2252,8 @@ DEBUGWIP("Init\n");
   		glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo_vram_);
   		//glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 0x80000, (void*)Vdp2Ram);
   		if(mapped_vram == nullptr) mapped_vram = glMapBufferRange(GL_SHADER_STORAGE_BUFFER, 0, 0x100000, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
-  		memcpy(&((u8*)mapped_vram)[start], &Vdp2Ram[start], size);
+  		//memcpy(&((u8*)mapped_vram)[start], &Vdp2Ram[start], size); //Does not work
+  		memcpy(&((u8*)mapped_vram)[0], &Vdp2Ram[0], 0x80000<<(Vdp2Regs->VRSIZE>>15));
   		glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
   		mapped_vram = nullptr;
 		}

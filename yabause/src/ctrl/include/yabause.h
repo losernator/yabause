@@ -64,7 +64,6 @@ typedef struct
    int polygon_generation_mode;
    int stretch;
    int use_cs;
-   int scanline;
    int meshmode;
    int bandingmode;
    int resolution_mode;
@@ -138,7 +137,6 @@ typedef struct
    int wireframe_mode;
    int stvInputType;
    int vdp1cycles;
-   u8 fps;
    u8 screenOn;
 } yabsys_struct;
 

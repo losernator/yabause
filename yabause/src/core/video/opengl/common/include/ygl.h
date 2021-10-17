@@ -223,6 +223,8 @@ extern PFNGLMEMORYBARRIERPROC glMemoryBarrier;
 #define NB_RENDER_LAYER 1
 #endif
 
+typedef GLuint (*GetFBFunc)(int);
+
 typedef struct {
 	float vertices[8];
 	int w;
@@ -424,7 +426,8 @@ typedef enum
   AA_BOB_SECURE_FILTER,
   AA_BOB_SECURE_DEBUG_FILTER,
   AA_BOB_OSSC_FILTER,
-  AA_BOB_OSSC_DEBUG_FILTER
+  AA_BOB_OSSC_DEBUG_FILTER,
+  AA_SCANLINE
 } AAMODE;
 
 typedef enum
@@ -482,7 +485,6 @@ typedef enum {
     VDP_SETTING_RESOLUTION_MODE,
     VDP_SETTING_UPSCALMODE,
     VDP_SETTING_ASPECT_RATIO,
-    VDP_SETTING_SCANLINE,
     VDP_SETTING_MESH_MODE,
     VDP_SETTING_BANDING_MODE,
     VDP_SETTING_COMPUTE_SHADER,
@@ -649,13 +651,11 @@ typedef struct {
    POLYGONMODE polygonmode;
    MESHMODE meshmode;
    BANDINGMODE bandingmode;
-   int scanline;
    int wireframe_mode;
    RATIOMODE stretch;
    RESOLUTION_MODE resolution_mode;
    COMPUTESHADERMODE use_cs;
    GLsync sync;
-   GLsync syncVdp1[2];
    GLuint default_fbo;
    int vpd1_running;
    int needVdp1Render;
@@ -767,7 +767,7 @@ void YglSetPerlineBuf(u32 * pbuf);
 int YglSetLevelBlendmode( int pri, int mode );
 
 extern int YglBlitSimple(int texture, int blend);
-extern int YglBlitTexture(int* prioscreens, int* modescreens, int* isRGB, int * isBlur, int* isPerline, int* isShadow, int* lncl, GLuint* vdp1fb, int win_s, int win_s_mode, int Win0, int Win0_mode, int Win1, int Win1_mode, int Win_op, int* use_lncl_off, Vdp2 *varVdp2Regs);
+extern int YglBlitTexture(int* prioscreens, int* modescreens, int* isRGB, int * isBlur, int* isPerline, int* isShadow, int* lncl, GetFBFunc vdp1fb, int win_s, int win_s_mode, int Win0, int Win0_mode, int Win1, int Win1_mode, int Win_op, int* use_lncl_off, Vdp2 *varVdp2Regs);
 extern SpriteMode getSpriteRenderMode(Vdp2* varVdp2Regs);
 extern void executeTMVDP1(int in, int out);
 

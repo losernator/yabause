@@ -31,6 +31,7 @@ extern "C" {
 #define LOCAL_SIZE_Y 4
 
 #define QUEUE_SIZE 512
+#define CMD_QUEUE_SIZE 2048
 
 //#define SHOW_QUAD
 
@@ -226,12 +227,15 @@ SHADER_VERSION_COMPUTE
 "layout(std430, binding = 3) readonly buffer VDP1RAM { uint Vdp1Ram[]; };\n"
 "layout(std430, binding = 4) readonly buffer NB_CMD { uint nbCmd[]; };\n"
 "layout(std430, binding = 5) readonly buffer CMD { \n"
+"  uint cmdNb[];\n"
+"};\n"
+"layout(std430, binding = 6) readonly buffer CMD_LIST { \n"
 "  cmdparameter_struct cmd[];\n"
 "};\n"
-"layout(location = 6) uniform vec2 upscale;\n"
-"layout(location = 7) uniform ivec2 sysClip;\n"
-"layout(location = 8) uniform ivec4 usrClip;\n"
-"layout(location = 9) uniform mat4 rot;\n"
+"layout(location = 7) uniform vec2 upscale;\n"
+"layout(location = 8) uniform ivec2 sysClip;\n"
+"layout(location = 9) uniform ivec4 usrClip;\n"
+"layout(location = 10) uniform mat4 rot;\n"
 //===================================================================
 "vec3 antiAliasedPoint( vec2 P,  vec2 P0, vec2 P1 )\n"
 // dist_Point_to_Segment(): get the distance of a point to a segment
@@ -354,8 +358,8 @@ SHADER_VERSION_COMPUTE
 "int getCmd(vec2 P, uint id, uint start, uint end, out uint zone, bool wait_sysclip, out vec2 uv)\n"
 "{\n"
 "  for(uint i=id+start; i<id+end; i++) {\n"
-"     if (wait_sysclip && (cmd[i].type != "Stringify(SYSTEM_CLIPPING)")) continue;"
-"     zone = pixIsInside(P, i, uv);\n"
+"     if (wait_sysclip && (cmd[cmdNb[i]].type != "Stringify(SYSTEM_CLIPPING)")) continue;"
+"     zone = pixIsInside(P, cmdNb[i], uv);\n"
 "     if (zone != 0u) {\n"
 "       return int(i);\n"
 "     }\n"
@@ -382,12 +386,17 @@ SHADER_VERSION_COMPUTE
 
 "vec4 ReadSpriteColor(cmdparameter_struct pixcmd, vec2 uv, vec2 texel, out bool discarded){\n"
 "  vec4 color = vec4(0.0);\n"
+" if ((pixcmd.flip & 0x2u) == 0x2u) {\n"
+"   uv.y += 0.5f/float(pixcmd.h);\n"
+" } else {\n"
+"   uv.y -= 0.5f/float(pixcmd.h);\n"
+" }\n"
 
 " float posf = pixcmd.h*uv.y;\n"
 " if ((pixcmd.flip & 0x2u) == 0x2u) posf = floor(posf);\n"
 " else posf = ceil(posf);\n"
 
-"  uint x = uint(ceil(uv.x*(pixcmd.w-1)));\n"
+"  uint x = clamp(uint(uv.x*(pixcmd.w-1)), 0u, uint(pixcmd.w-1));\n"
 "  uint pos = clamp(uint(posf), 0u, uint(pixcmd.h-1))*pixcmd.w+x;\n"
 
 
@@ -553,7 +562,7 @@ SHADER_VERSION_COMPUTE
 "    cmdindex = getCmd(texel, cmdIndex, idCmd, nbCmd[lindex], zone, waitSysClip, uv);\n"
 "    if (cmdindex == -1) continue;\n"
 "    idCmd = cmdindex + 1 - cmdIndex;\n"
-"    pixcmd = cmd[cmdindex];\n"
+"    pixcmd = cmd[cmdNb[cmdindex]];\n"
 "    if (pixcmd.type == "Stringify(SYSTEM_CLIPPING)") {\n"
 "      syslimit = ivec2(pixcmd.CMDXC+1,pixcmd.CMDYC+1);\n"
 "      waitSysClip = false;\n"

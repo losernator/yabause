@@ -4379,7 +4379,7 @@ void VIDOGLVdp2Draw(void)
   }
   YglTmPull(YglTM_vdp2, 0);
 
-  if (yabsys.screenOn != 0) {
+  if (Vdp2Regs->TVMD & 0x8000) {
     VIDOGLVdp2DrawScreens();
   }
 
@@ -6668,9 +6668,6 @@ void VIDOGLSetSettingValueMode(int type, int value) {
   break;
   case VDP_SETTING_ASPECT_RATIO:
     _Ygl->stretch = value;
-  break;
-  case VDP_SETTING_SCANLINE:
-    _Ygl->scanline = value;
   break;
   case VDP_SETTING_WIREFRAME:
     _Ygl->wireframe_mode = value;

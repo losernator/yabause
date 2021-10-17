@@ -190,7 +190,8 @@ void YabauseChangeTiming(int freqtype) {
 
 //////////////////////////////////////////////////////////////////////////////
 extern int tweak_backup_file_size;
-YabEventQueue * q_scsp_m68counterCond;
+extern YabSem * g_scsp_ready;
+extern YabSem * g_cpu_ready;
 
 static void sh2ExecuteSync( SH2_struct* sh, int req ) {
     if (req != 0) {
@@ -336,10 +337,7 @@ int YabauseInit(yabauseinit_struct *init)
    yabsys.wireframe_mode = init->wireframe_mode;
    yabsys.skipframe = init->skipframe;
    yabsys.isRotated = 0;
-   YabauseSetVideoFormat(VIDEOFORMATTYPE_NTSC); //default video format initialization
    nextFrameTime = 0;
-
-  q_scsp_m68counterCond = YabThreadCreateQueue(1);
 
    // Initialize both cpu's
    if (SH2Init(init->sh2coretype) != 0)
@@ -430,7 +428,6 @@ int YabauseInit(yabauseinit_struct *init)
    VideoSetSetting(VDP_SETTING_POLYGON_MODE, init->polygon_generation_mode);
    VideoSetSetting(VDP_SETTING_RESOLUTION_MODE, init->resolution_mode);
    VideoSetSetting(VDP_SETTING_ASPECT_RATIO, init->stretch);
-   VideoSetSetting(VDP_SETTING_SCANLINE, init->scanline);
    VideoSetSetting(VDP_SETTING_WIREFRAME, init->wireframe_mode);
    VideoSetSetting(VDP_SETTING_MESH_MODE, init->meshmode);
    VideoSetSetting(VDP_SETTING_BANDING_MODE, init->bandingmode);
@@ -538,10 +535,6 @@ int YabauseInit(yabauseinit_struct *init)
 
    if (Cs2GetRegionID() >= 0xA) YabauseSetVideoFormat(VIDEOFORMATTYPE_PAL);
    else YabauseSetVideoFormat(VIDEOFORMATTYPE_NTSC);
-
-#if defined(ASYNC_SCSP)
-   ScspRun();
-#endif
 
 #ifdef HAVE_GDBSTUB
    GdbStubInit(MSH2, 43434);
@@ -752,12 +745,25 @@ int YabauseEmulate(void) {
    unsigned int m68kcycles;       // Integral M68k cycles per call
    unsigned int m68kcenticycles;  // 1/100 M68k cycles per call
 
-    //http://antime.kapsi.fi/sega/files/ST-103-R1-040194.pdf
-   int const lines = yabsys.MaxLineCount;
-   u8 const frames = yabsys.fps;
+   u64 m68k_cycles_per_deciline = 0;
+   u64 scsp_cycles_per_deciline = 0;
 
-   u64 const scsp_cycles_per_deciline = get_cycles_per_line_division(scsp_frequency * 512, frames, lines, DECILINE_STEP);
-   u64 const m68k_cycles_per_deciline = get_cycles_per_line_division(scsp_frequency * scsp_samplecnt, frames, lines, DECILINE_STEP);
+   int lines = 0;
+   int frames = 0;
+
+   if (yabsys.IsPal)
+   {
+     lines = 313;
+     frames = 50;
+   }
+   else
+   {
+     lines = 263;
+     frames = 60;
+   }
+   scsp_cycles_per_deciline = get_cycles_per_line_division(44100 * 512, frames, lines, DECILINE_STEP);
+   m68k_cycles_per_deciline = get_cycles_per_line_division(44100 * 256, frames, lines, DECILINE_STEP);
+
    DoMovie();
 
    MSH2->cycles = 0;
@@ -812,11 +818,15 @@ int YabauseEmulate(void) {
         // SyncScsp();
          PROFILE_STOP("hblankout");
          PROFILE_START("SCSP");
+         ScspExec();
          PROFILE_STOP("SCSP");
          yabsys.DecilineCount = 0;
          yabsys.LineCount++;
          if (yabsys.LineCount == yabsys.VBlankLineCount)
          {
+#if defined(ASYNC_SCSP)
+            ScspAddCycles((u64)(44100 * 256 / frames)<< SCSP_FRACTIONAL_BITS);
+#endif
             PROFILE_START("vblankin");
             // VBlankIN
             SmpcINTBACKEnd();
@@ -868,7 +878,8 @@ int YabauseEmulate(void) {
       saved_scsp_cycles -= scsp_integer_part << SCSP_FRACTIONAL_BITS;
 #else
       {
-          ScspAddCycles(m68k_cycles_per_deciline);
+        saved_m68k_cycles  += m68k_cycles_per_deciline;
+        ScspAddCycles(m68k_cycles_per_deciline);
 #endif
       }
       PROFILE_STOP("Total Emulation");
@@ -908,13 +919,13 @@ int YabauseEmulate(void) {
    return ret;
 }
 
-extern YabMutex * g_scsp_mtx;
 
 void SyncCPUtoSCSP() {
   //LOG("[SH2] WAIT SCSP");
+    YabSemPost(g_cpu_ready);
     YabThreadWake(YAB_THREAD_SCSP);
-    YabThreadLock(g_scsp_mtx);
-    YabThreadUnLock(g_scsp_mtx);
+    YabSemWait(g_scsp_ready);
+    saved_m68k_cycles = 0;
   //LOG("[SH2] START SCSP");
 }
 
@@ -1000,10 +1011,9 @@ u64 YabauseGetTicks(void) {
 //////////////////////////////////////////////////////////////////////////////
 
 void YabauseSetVideoFormat(int type) {
-   yabsys.IsPal = (type == VIDEOFORMATTYPE_PAL);
-   yabsys.fps = yabsys.IsPal ? 50 : 60;
-   yabsys.MaxLineCount = yabsys.IsPal ? 313 : 263;
    if (Vdp2Regs == NULL) return;
+   yabsys.IsPal = (type == VIDEOFORMATTYPE_PAL);
+   yabsys.MaxLineCount = type ? 313 : 263;
 #ifdef WIN32
    QueryPerformanceFrequency((LARGE_INTEGER *)&yabsys.tickfreq);
 #elif defined(_arch_dreamcast)
