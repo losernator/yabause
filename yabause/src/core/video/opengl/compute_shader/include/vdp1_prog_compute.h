@@ -248,9 +248,7 @@ SHADER_VERSION_COMPUTE
 "  if ( c1 <= 0.0 )\n"
 "    return vec3(P0,0.0);\n"
 "  float c2 = dot(v,v);\n"
-"  if ( c2 <= c1 )\n"
-"    return vec3(P1,1.0);\n"
-"  float b = c1 / c2;\n"
+"  float b = clamp(c1 / c2, 0.0, 1.0);\n"
 "  vec2 Pb = P0 + b * v;\n"
 "  return vec3(Pb,b);\n"
 "}\n"
@@ -550,7 +548,6 @@ SHADER_VERSION_COMPUTE
 "  uint idCmd = 0;\n"
 "  uint zone = 0;\n"
 "  int cmdindex = 0;\n"
-"  bool useGouraud = false;\n"
 "  bool waitSysClip = false;\n"
 "  vec2 OriginTexel = texel;\n"
 "  while ((cmdindex != -1) && (idCmd<nbCmd[lindex]) ) {\n"
@@ -584,7 +581,6 @@ SHADER_VERSION_COMPUTE
 //Draw outside
 "      if (all(greaterThanEqual(pos,userlimit.xy*scaleRot*upscale)) && all(lessThanEqual(pos,userlimit.zw*scaleRot*upscale))) continue;\n"
 "    }\n"
-"    useGouraud = ((pixcmd.CMDPMOD & 0x4u) == 0x4u);\n"
 "    texcoord = uv;\n"
 "    gouraudcoord = texcoord;\n"
 "    if ((pixcmd.flip & 0x1u) == 0x1u) texcoord.x = 1.0 - texcoord.x;\n" //invert horizontally
