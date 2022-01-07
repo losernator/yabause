@@ -557,7 +557,7 @@ const GLchar Yglprg_rgb_cram_line_f[] =
 "    vec4 txcol = texelFetch( s_color, ivec2( ((highg&0x7F)<<8) | int(txindex.r*255.0+0.5) , 0 ) , 0 );\n"
 "    txcol.a = txindex.a; \n"
 "    if( (highg & 0x80)  != 0) {\n"
-"      int coef = int(txindex.b*255.0);\n"
+"      int coef = int(txindex.b*255.0+0.5);\n"
 "      vec4 linecol;\n"
 "      vec4 lineindex = texelFetch( s_line_texture,  ivec2( int(v_texcoord.z),int(v_texcoord.w))  ,0 );\n"
 "      int lineparam = ((int(lineindex.g*255.0) & 0x7F)<<8) | int(lineindex.r*255.0); \n"
